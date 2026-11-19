@@ -303,7 +303,25 @@ public static async create(
         });
 
         const startedAt = performance.now();
+        console.log('[GAN-BLE] SUBSCRIBE_PRECHECK', {
+            connected: device.gatt?.connected,
+            serviceUUID: stateCharacteristic.service.uuid,
+            characteristicUUID: stateCharacteristic.uuid,
+            notify: stateCharacteristic.properties.notify,
+            indicate: stateCharacteristic.properties.indicate
+        });
+
         const subscription = conn.stateCharacteristic.startNotifications();
+
+        console.log('[GAN-BLE] SUBSCRIBE_PROMISE_CREATED');
+
+        subscription.then(
+            () => console.log('[GAN-BLE] SUBSCRIBE_PROMISE_RESOLVED'),
+            error => console.error('[GAN-BLE] SUBSCRIBE_PROMISE_REJECTED', {
+                name: error.name,
+                message: error.message
+            })
+        );
 
         const watchdog = setTimeout(() => {
             console.error('[GAN-BLE] SUBSCRIBE_TIMEOUT', {
