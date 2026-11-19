@@ -15,7 +15,8 @@
     "clean": "rm -rf dist/",
     "compile:bundles": "rollup -c",
     "compile:types": "tsc -p tsconfig.types.json",
-    "build": "npm run clean && npm run compile:types && npm run compile:bundles"
+    "build": "npm run clean && npm run compile:types && npm run compile:bundles",
+  "prepare": "npm run build"
   },
   "keywords": [
     "GAN",
@@ -43,11 +44,11 @@
     "rxjs": ">= 7"
   },
   "devDependencies": {
-    "@types/node": "^22.5.0",
-    "@types/aes-js": "^3.1.4",
     "@rollup/plugin-typescript": "^11.1.6",
+    "@types/aes-js": "^3.1.4",
+    "@types/node": "^20.19.43",
     "rollup": "^4.21.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.4.5"
   },
   "files": [
     "dist",
