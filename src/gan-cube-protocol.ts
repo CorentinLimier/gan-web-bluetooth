@@ -288,7 +288,29 @@ public static async create(
         }, 10000);
 
         try {
-            await conn.stateCharacteristic.startNotifications();
+            console.log('[GAN-BLE] SUBSCRIBE_BEGIN', {
+            connected: device.gatt?.connected,
+            characteristic: stateCharacteristic.uuid,
+            notify: stateCharacteristic.properties.notify
+        });
+
+        const startedAt = performance.now();
+        const subscription = conn.stateCharacteristic.startNotifications();
+
+        subscription.then(
+            () => console.log('[GAN-BLE] SUBSCRIBE_RESOLVED', {
+                durationMs: performance.now() - startedAt,
+                connected: device.gatt?.connected
+            }),
+            error => console.error('[GAN-BLE] SUBSCRIBE_REJECTED', {
+                name: error.name,
+                message: error.message,
+                durationMs: performance.now() - startedAt,
+                connected: device.gatt?.connected
+            })
+        );
+
+        await subscription;
             console.log('[GAN-NOTIFY] START_NOTIFICATIONS_SUCCESS', {
                 durationMs: Math.round(performance.now() - startedAt)
             });
