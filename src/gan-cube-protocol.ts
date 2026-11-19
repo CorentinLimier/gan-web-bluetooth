@@ -322,10 +322,13 @@ public static async create(
                 uuid: cccd.uuid,
                 connected: device.gatt?.connected
             });
-        } catch (error) {
+        } catch (error: unknown) {
+            const bleError = error instanceof Error
+                ? { name: error.name, message: error.message }
+                : { name: 'UnknownError', message: String(error) };
+
             console.error('[GAN-BLE] CCCD_LOOKUP_FAILED', {
-                name: error.name,
-                message: error.message,
+                ...bleError,
                 connected: device.gatt?.connected
             });
         }
