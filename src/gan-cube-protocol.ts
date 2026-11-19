@@ -297,8 +297,23 @@ public static async create(
             throw new Error('State characteristic does not support notifications');
         }
 
-        // Do not manually access the CCCD descriptor.
-        // startNotifications() handles CCCD configuration.
+        // Diagnostic: inspect CCCD before notification initialization.
+        try {
+            log("CCCD_READ_START");
+            const cccd = await stateCharacteristic.getDescriptor(
+                "00002902-0000-1000-8000-00805f9b34fb"
+            );
+            const cccdValue = await cccd.readValue();
+            log("CCCD_INITIAL_VALUE", {
+                bytes: Array.from(new Uint8Array(cccdValue.buffer))
+            });
+        } catch (error) {
+            log("CCCD_READ_FAILED", {
+                message: error instanceof Error ? error.message : String(error)
+            });
+        }
+
+
 
         log('START_NOTIFICATIONS_CALL');
 
