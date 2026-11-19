@@ -213,19 +213,105 @@ class GanCubeClassicConnection implements GanCubeConnection, GanCubeRawConnectio
         this.events$ = new Subject<GanCubeEvent>();
     }
 
-    public static async create(
-        device: BluetoothDeviceWithMAC,
-        commandCharacteristic: BluetoothRemoteGATTCharacteristic,
-        stateCharacteristic: BluetoothRemoteGATTCharacteristic,
-        encrypter: GanCubeEncrypter,
-        driver: GanProtocolDriver
-    ): Promise<GanCubeConnection> {
-        var conn = new GanCubeClassicConnection(device, commandCharacteristic, stateCharacteristic, encrypter, driver);
-        conn.device.addEventListener('gattserverdisconnected', conn.onDisconnect);
-        conn.stateCharacteristic.addEventListener('characteristicvaluechanged', conn.onStateUpdate);
+
+public static async create(
+    device: BluetoothDeviceWithMAC,
+    commandCharacteristic: BluetoothRemoteGATTCharacteristic,
+    stateCharacteristic: BluetoothRemoteGATTCharacteristic,
+    encrypter: GanCubeEncrypter,
+    driver: GanProtocolDriver
+): Promise<GanCubeConnection> {
+
+    const prefix = '[GAN-BLE]';
+
+    const log = (event: string, details?: unknown) => {
+        console.log(prefix, event, {
+            timestamp: new Date().toISOString(),
+            details
+        });
+    };
+
+    const logError = (event: string, error: unknown) => {
+        console.error(prefix, event, {
+            name: error instanceof Error ? error.name : 'Unknown',
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+        });
+    };
+
+    log('CLASSIC_CREATE_START', {
+        deviceName: device.name,
+        gattConnected: device.gatt?.connected,
+        commandUUID: commandCharacteristic.uuid,
+        stateUUID: stateCharacteristic.uuid,
+        notificationsSupported: stateCharacteristic.properties.notify,
+        indicationsSupported: stateCharacteristic.properties.indicate
+    });
+
+    const conn = new GanCubeClassicConnection(
+        device,
+        commandCharacteristic,
+        stateCharacteristic,
+        encrypter,
+        driver
+    );
+
+    log('GATT_DISCONNECT_LISTENER_REGISTER_START');
+
+    conn.device.addEventListener(
+        'gattserverdisconnected',
+        conn.onDisconnect
+    );
+
+    log('GATT_DISCONNECT_LISTENER_REGISTER_SUCCESS');
+
+    log('STATE_UPDATE_LISTENER_REGISTER_START');
+
+    conn.stateCharacteristic.addEventListener(
+        'characteristicvaluechanged',
+        conn.onStateUpdate
+    );
+
+    log('STATE_UPDATE_LISTENER_REGISTER_SUCCESS');
+
+    log('START_NOTIFICATIONS_START');
+
+    const notificationStart = performance.now();
+
+    try {
         await conn.stateCharacteristic.startNotifications();
-        return conn;
+
+        log('START_NOTIFICATIONS_SUCCESS', {
+            durationMs: Math.round(
+                performance.now() - notificationStart
+            )
+        });
+
+    } catch (error) {
+        logError('START_NOTIFICATIONS_FAILED', error);
+
+        conn.stateCharacteristic.removeEventListener(
+            'characteristicvaluechanged',
+            conn.onStateUpdate
+        );
+
+        conn.device.removeEventListener(
+            'gattserverdisconnected',
+            conn.onDisconnect
+        );
+
+        throw error;
     }
+
+    log('CLASSIC_CREATE_SUCCESS', {
+        durationMs: Math.round(
+            performance.now() - notificationStart
+        ),
+        gattConnected: device.gatt?.connected
+    });
+
+    return conn;
+}
 
     get deviceName(): string {
         return this.device.name || "GAN-XXXX";
