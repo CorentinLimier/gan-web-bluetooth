@@ -279,7 +279,25 @@ public static async create(
     const notificationStart = performance.now();
 
     try {
-        await conn.stateCharacteristic.startNotifications();
+        console.log('[GAN-NOTIFY] START_NOTIFICATIONS_START');
+
+        const startedAt = performance.now();
+
+        const watchdog = setTimeout(() => {
+            console.warn('[GAN-NOTIFY] START_NOTIFICATIONS_STILL_PENDING');
+        }, 10000);
+
+        try {
+            await conn.stateCharacteristic.startNotifications();
+            console.log('[GAN-NOTIFY] START_NOTIFICATIONS_SUCCESS', {
+                durationMs: Math.round(performance.now() - startedAt)
+            });
+        } catch (error) {
+            console.error('[GAN-NOTIFY] START_NOTIFICATIONS_FAILED', error);
+            throw error;
+        } finally {
+            clearTimeout(watchdog);
+        }
 
         log('START_NOTIFICATIONS_SUCCESS', {
             durationMs: Math.round(
@@ -329,6 +347,19 @@ public static async create(
     onStateUpdate = async (evt: Event) => {
         var characteristic = evt.target as BluetoothRemoteGATTCharacteristic;
         var eventMessage = characteristic.value;
+
+        console.log('[GAN-NOTIFY] RAW_NOTIFICATION_RECEIVED', {
+            uuid: characteristic.uuid,
+            byteLength: eventMessage?.byteLength,
+            connected: this.device.gatt?.connected,
+            hex: eventMessage
+                ? Array.from(new Uint8Array(
+                    eventMessage.buffer,
+                    eventMessage.byteOffset,
+                    eventMessage.byteLength
+                  )).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                : null
+        });
         if (eventMessage && eventMessage.byteLength >= 16) {
             var decryptedMessage = this.encrypter.decrypt(new Uint8Array(eventMessage.buffer));
             var cubeEvents = await this.driver.handleStateEvent(this, decryptedMessage);
