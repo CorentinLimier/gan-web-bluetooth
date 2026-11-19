@@ -311,6 +311,27 @@ public static async create(
             indicate: stateCharacteristic.properties.indicate
         });
 
+        console.log('[GAN-BLE] CCCD_LOOKUP_START');
+
+        try {
+            const cccd = await stateCharacteristic.getDescriptor(
+                '00002902-0000-1000-8000-00805f9b34fb'
+            );
+
+            console.log('[GAN-BLE] CCCD_LOOKUP_SUCCESS', {
+                uuid: cccd.uuid,
+                connected: device.gatt?.connected
+            });
+        } catch (error) {
+            console.error('[GAN-BLE] CCCD_LOOKUP_FAILED', {
+                name: error.name,
+                message: error.message,
+                connected: device.gatt?.connected
+            });
+        }
+
+        console.log('[GAN-BLE] STARTING_NOTIFICATION_SUBSCRIPTION');
+
         const subscription = conn.stateCharacteristic.startNotifications();
 
         console.log('[GAN-BLE] SUBSCRIBE_PROMISE_CREATED');
