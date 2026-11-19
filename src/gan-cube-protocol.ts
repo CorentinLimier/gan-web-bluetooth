@@ -279,112 +279,58 @@ public static async create(
     const notificationStart = performance.now();
 
     try {
-        console.log('[GAN-NOTIFY] START_NOTIFICATIONS_START');
-
-        const startedAt = performance.now();
-
-        const watchdog = setTimeout(() => {
-            console.warn('[GAN-NOTIFY] START_NOTIFICATIONS_STILL_PENDING');
-        }, 10000);
-
-        try {
-            console.log('[GAN-BLE] SUBSCRIBE_BEGIN', {
+        log('SUBSCRIBE_BEGIN', {
             connected: device.gatt?.connected,
             characteristic: stateCharacteristic.uuid,
-            notify: stateCharacteristic.properties.notify
-        });
-
-        console.log('[GAN-BLE] CHARACTERISTIC_STATE', {
-            connected: device.gatt?.connected,
-            service: stateCharacteristic.service.uuid,
-            uuid: stateCharacteristic.uuid,
             notify: stateCharacteristic.properties.notify,
             indicate: stateCharacteristic.properties.indicate
         });
 
-        const startedAt = performance.now();
-        console.log('[GAN-BLE] SUBSCRIBE_PRECHECK', {
-            connected: device.gatt?.connected,
-            serviceUUID: stateCharacteristic.service.uuid,
-            characteristicUUID: stateCharacteristic.uuid,
-            notify: stateCharacteristic.properties.notify,
-            indicate: stateCharacteristic.properties.indicate
-        });
+        if (!device.gatt?.connected) {
+            throw new Error('GATT disconnected before notification initialization');
+        }
 
-        console.log('[GAN-BLE] CCCD_LOOKUP_START');
+        if (
+            !stateCharacteristic.properties.notify &&
+            !stateCharacteristic.properties.indicate
+        ) {
+            throw new Error('State characteristic does not support notifications');
+        }
+
+        // Do not manually access the CCCD descriptor.
+        // startNotifications() handles CCCD configuration.
+
+        log('START_NOTIFICATIONS_CALL');
+
+        const subscription = stateCharacteristic.startNotifications();
+
+        log('SUBSCRIBE_PROMISE_CREATED');
+
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
 
         try {
-            const cccd = await stateCharacteristic.getDescriptor(
-                '00002902-0000-1000-8000-00805f9b34fb'
-            );
-
-            console.log('[GAN-BLE] CCCD_LOOKUP_SUCCESS', {
-                uuid: cccd.uuid,
-                connected: device.gatt?.connected
-            });
-
-        } catch (error: unknown) {
-            const bleError = error instanceof Error
-                ? { name: error.name, message: error.message }
-                : { name: 'UnknownError', message: String(error) };
-
-            console.error('[GAN-BLE] CCCD_LOOKUP_FAILED', {
-                ...bleError,
-                connected: device.gatt?.connected
-            });
-        }
-
-        console.log('[GAN-BLE] STARTING_NOTIFICATION_SUBSCRIPTION');
-
-        const subscription = conn.stateCharacteristic.startNotifications();
-
-        console.log('[GAN-BLE] SUBSCRIBE_PROMISE_CREATED');
-
-        subscription.then(
-            () => console.log('[GAN-BLE] SUBSCRIBE_PROMISE_RESOLVED'),
-            error => console.error('[GAN-BLE] SUBSCRIBE_PROMISE_REJECTED', {
-                name: error.name,
-                message: error.message
-            })
-        );
-
-        const watchdog = setTimeout(() => {
-            console.error('[GAN-BLE] SUBSCRIBE_TIMEOUT', {
-                elapsedMs: performance.now() - startedAt,
-                connected: device.gatt?.connected,
-                characteristic: stateCharacteristic.uuid
-            });
-        }, 10000);
-
-        subscription.then(
-            () => {
-                clearTimeout(watchdog);
-                console.log('[GAN-BLE] SUBSCRIBE_RESOLVED', {
-                    durationMs: performance.now() - startedAt,
-                    connected: device.gatt?.connected
-                });
-            },
-            error => {
-                clearTimeout(watchdog);
-                console.error('[GAN-BLE] SUBSCRIBE_REJECTED', {
-                    name: error.name,
-                    message: error.message,
-                    durationMs: performance.now() - startedAt,
-                    connected: device.gatt?.connected
-                });
-            }
-        );
-
-        await subscription;
-            console.log('[GAN-NOTIFY] START_NOTIFICATIONS_SUCCESS', {
-                durationMs: Math.round(performance.now() - startedAt)
-            });
-        } catch (error) {
-            console.error('[GAN-NOTIFY] START_NOTIFICATIONS_FAILED', error);
-            throw error;
+            await Promise.race([
+                subscription,
+                new Promise<never>((_, reject) => {
+                    watchdog = setTimeout(() => {
+                        reject(new Error(
+                            'START_NOTIFICATIONS_TIMEOUT after 15000ms'
+                        ));
+                    }, 15000);
+                })
+            ]);
         } finally {
-            clearTimeout(watchdog);
+            if (watchdog !== undefined) {
+                clearTimeout(watchdog);
+            }
         }
+
+        log('SUBSCRIBE_RESOLVED', {
+            durationMs: Math.round(
+                performance.now() - notificationStart
+            ),
+            connected: device.gatt?.connected
+        });
 
         log('START_NOTIFICATIONS_SUCCESS', {
             durationMs: Math.round(
@@ -404,6 +350,15 @@ public static async create(
             'gattserverdisconnected',
             conn.onDisconnect
         );
+
+        // A timed-out GATT operation may leave Android's
+        // Bluetooth operation queue unusable.
+        // Disconnect rather than attempting another subscription.
+        if (device.gatt?.connected) {
+            log('GATT_FORCE_DISCONNECT_AFTER_SUBSCRIBE_FAILURE');
+
+            device.gatt.disconnect();
+        }
 
         throw error;
     }
@@ -454,12 +409,26 @@ public static async create(
         }
     }
 
-    onDisconnect = async (): Promise<any> => {
-        this.device.removeEventListener('gattserverdisconnected', this.onDisconnect);
-        this.stateCharacteristic.removeEventListener('characteristicvaluechanged', this.onStateUpdate);
-        this.events$.next({ timestamp: now(), type: "DISCONNECT" });
+    onDisconnect = async (): Promise<void> => {
+        this.device.removeEventListener(
+            'gattserverdisconnected',
+            this.onDisconnect
+        );
+
+        this.stateCharacteristic.removeEventListener(
+            'characteristicvaluechanged',
+            this.onStateUpdate
+        );
+
+        this.events$.next({
+            timestamp: now(),
+            type: "DISCONNECT"
+        });
+
         this.events$.unsubscribe();
-        return this.stateCharacteristic.stopNotifications().catch(() => { });
+
+        // Do not call stopNotifications() here.
+        // GATT disconnection automatically terminates the subscription.
     }
 
     async sendCubeCommand(command: GanCubeCommand): Promise<void> {
@@ -471,8 +440,9 @@ public static async create(
 
     async disconnect(): Promise<void> {
         await this.onDisconnect();
+
         if (this.device.gatt?.connected) {
-            this.device.gatt?.disconnect();
+            this.device.gatt.disconnect();
         }
     }
 
