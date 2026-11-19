@@ -105,8 +105,43 @@ async function connectGanCube(customMacAddressProvider?: MacAddressProvider): Pr
     var salt = new Uint8Array(device.mac.split(/[:-\s]+/).map((c) => parseInt(c, 16)).reverse());
 
     // Connect to GATT and get device primary services
-    var gatt = await device.gatt!.connect();
-    var services = await gatt.getPrimaryServices();
+console.log('[GAN-BLE] GATT_CONNECT_START');
+
+var gatt = await device.gatt!.connect();
+
+console.log('[GAN-BLE] GATT_CONNECTED', {
+    connected: gatt.connected,
+    deviceName: device.name,
+    deviceId: device.id,
+    userAgent: navigator.userAgent
+});
+
+console.log('[GAN-BLE] SERVICE_DISCOVERY_START');
+
+var discoveryStart = performance.now();
+
+var services: BluetoothRemoteGATTService[];
+
+try {
+    services = await gatt.getPrimaryServices();
+
+    console.log('[GAN-BLE] SERVICE_DISCOVERY_SUCCESS', {
+        durationMs: Math.round(performance.now() - discoveryStart),
+        count: services.length,
+        uuids: services.map(service => service.uuid)
+    });
+
+    if (services.length === 0) {
+        console.error('[GAN-BLE] EMPTY_SERVICE_LIST');
+    }
+} catch (error) {
+    console.error('[GAN-BLE] SERVICE_DISCOVERY_FAILED', {
+        error,
+        connected: gatt.connected
+    });
+
+    throw error;
+}
 
     var conn: GanCubeConnection | null = null;
 
