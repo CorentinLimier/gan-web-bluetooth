@@ -322,6 +322,28 @@ public static async create(
                 uuid: cccd.uuid,
                 connected: device.gatt?.connected
             });
+
+            console.log('[GAN-BLE] CCCD_READ_START');
+
+            try {
+                const value = await cccd.readValue();
+
+                console.log('[GAN-BLE] CCCD_READ_SUCCESS', {
+                    bytes: Array.from(
+                        new Uint8Array(
+                            value.buffer,
+                            value.byteOffset,
+                            value.byteLength
+                        )
+                    ),
+                    connected: device.gatt?.connected
+                });
+            } catch (error: unknown) {
+                console.error('[GAN-BLE] CCCD_READ_FAILED', {
+                    name: error instanceof Error ? error.name : 'UnknownError',
+                    message: error instanceof Error ? error.message : String(error)
+                });
+            }
         } catch (error: unknown) {
             const bleError = error instanceof Error
                 ? { name: error.name, message: error.message }
