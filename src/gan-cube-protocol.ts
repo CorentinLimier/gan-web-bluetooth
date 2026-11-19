@@ -294,20 +294,42 @@ public static async create(
             notify: stateCharacteristic.properties.notify
         });
 
+        console.log('[GAN-BLE] CHARACTERISTIC_STATE', {
+            connected: device.gatt?.connected,
+            service: stateCharacteristic.service.uuid,
+            uuid: stateCharacteristic.uuid,
+            notify: stateCharacteristic.properties.notify,
+            indicate: stateCharacteristic.properties.indicate
+        });
+
         const startedAt = performance.now();
         const subscription = conn.stateCharacteristic.startNotifications();
 
+        const watchdog = setTimeout(() => {
+            console.error('[GAN-BLE] SUBSCRIBE_TIMEOUT', {
+                elapsedMs: performance.now() - startedAt,
+                connected: device.gatt?.connected,
+                characteristic: stateCharacteristic.uuid
+            });
+        }, 10000);
+
         subscription.then(
-            () => console.log('[GAN-BLE] SUBSCRIBE_RESOLVED', {
-                durationMs: performance.now() - startedAt,
-                connected: device.gatt?.connected
-            }),
-            error => console.error('[GAN-BLE] SUBSCRIBE_REJECTED', {
-                name: error.name,
-                message: error.message,
-                durationMs: performance.now() - startedAt,
-                connected: device.gatt?.connected
-            })
+            () => {
+                clearTimeout(watchdog);
+                console.log('[GAN-BLE] SUBSCRIBE_RESOLVED', {
+                    durationMs: performance.now() - startedAt,
+                    connected: device.gatt?.connected
+                });
+            },
+            error => {
+                clearTimeout(watchdog);
+                console.error('[GAN-BLE] SUBSCRIBE_REJECTED', {
+                    name: error.name,
+                    message: error.message,
+                    durationMs: performance.now() - startedAt,
+                    connected: device.gatt?.connected
+                });
+            }
         );
 
         await subscription;
