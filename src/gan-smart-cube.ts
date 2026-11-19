@@ -40,26 +40,92 @@ function extractMAC(manufacturerData: BluetoothManufacturerData): string {
 }
 
 /** If browser supports Web Bluetooth watchAdvertisements() API, try to retrieve MAC address automatically */
-async function autoRetrieveMacAddress(device: BluetoothDevice): Promise<string | null> {
+
+async function autoRetrieveMacAddress(
+    device: BluetoothDevice
+): Promise<string | null> {
+
+    const prefix = '[GAN-BLE]';
+
+    console.log(prefix, 'MAC_AUTO_START', {
+        deviceName: device.name,
+        deviceId: device.id,
+        watchAdvertisementsAvailable:
+            typeof device.watchAdvertisements === 'function'
+    });
+
+    if (typeof device.watchAdvertisements !== 'function') {
+        console.warn(prefix, 'MAC_WATCH_ADVERTISEMENTS_UNSUPPORTED');
+        return null;
+    }
+
     return new Promise<string | null>((resolve) => {
-        if (typeof device.watchAdvertisements != 'function') {
-            resolve(null);
-        }
-        var abortController = new AbortController();
-        var onAdvEvent = (evt: Event) => {
-            device.removeEventListener("advertisementreceived", onAdvEvent);
+        const abortController = new AbortController();
+        let finished = false;
+
+        const finish = (mac: string | null, reason: string) => {
+            if (finished) return;
+
+            finished = true;
+
+            device.removeEventListener(
+                'advertisementreceived',
+                onAdvEvent
+            );
+
             abortController.abort();
-            var mac = extractMAC((evt as BluetoothAdvertisingEvent).manufacturerData);
-            resolve(mac || null);
+
+            console.log(prefix, 'MAC_AUTO_FINISHED', {
+                success: !!mac,
+                reason
+            });
+
+            resolve(mac);
         };
-        var onAbort = () => {
-            device.removeEventListener("advertisementreceived", onAdvEvent);
-            abortController.abort();
-            resolve(null);
+
+        const onAdvEvent = (evt: Event) => {
+            const advertisement = evt as BluetoothAdvertisingEvent;
+            const manufacturerData = advertisement.manufacturerData;
+
+            console.log(prefix, 'MAC_ADVERTISEMENT_RECEIVED', {
+                manufacturerDataAvailable: !!manufacturerData,
+                manufacturerIds: manufacturerData
+                    ? Array.from(manufacturerData.keys())
+                    : [],
+                rssi: advertisement.rssi,
+                txPower: advertisement.txPower
+            });
+
+            const mac = manufacturerData
+                ? extractMAC(manufacturerData)
+                : '';
+
+            finish(mac || null, mac ? 'MAC_EXTRACTED' : 'NO_MAC_IN_ADVERTISEMENT');
         };
-        device.addEventListener("advertisementreceived", onAdvEvent);
-        device.watchAdvertisements({ signal: abortController.signal }).catch(onAbort);
-        setTimeout(onAbort, 10000);
+
+        device.addEventListener(
+            'advertisementreceived',
+            onAdvEvent
+        );
+
+        console.log(prefix, 'MAC_WATCH_ADVERTISEMENTS_START');
+
+        device.watchAdvertisements({
+            signal: abortController.signal
+        }).then(() => {
+            console.log(prefix, 'MAC_WATCH_ADVERTISEMENTS_STARTED');
+        }).catch(error => {
+            console.error(prefix, 'MAC_WATCH_ADVERTISEMENTS_FAILED', {
+                name: error?.name,
+                message: error?.message
+            });
+
+            finish(null, 'WATCH_FAILED');
+        });
+
+        setTimeout(() => {
+            finish(null, 'ADVERTISEMENT_TIMEOUT_10_SECONDS');
+        }, 10000);
     });
 }
 
@@ -92,10 +158,59 @@ async function connectGanCube(customMacAddressProvider?: MacAddressProvider): Pr
         }
     );
 
-    // Retrieve cube MAC address needed for key salting
-    var mac = customMacAddressProvider && await customMacAddressProvider(device, false)
-        || await autoRetrieveMacAddress(device)
-        || customMacAddressProvider && await customMacAddressProvider(device, true);
+
+console.log('[GAN-BLE] MAC_RETRIEVAL_START');
+
+var mac: string | null = null;
+
+try {
+    if (customMacAddressProvider) {
+        console.log('[GAN-BLE] MAC_CUSTOM_PROVIDER_FIRST_CALL');
+
+        mac = await customMacAddressProvider(device, false);
+
+        console.log('[GAN-BLE] MAC_CUSTOM_PROVIDER_FIRST_RESULT', {
+            success: !!mac
+        });
+    }
+
+    if (!mac) {
+        console.log('[GAN-BLE] MAC_AUTOMATIC_RETRIEVAL');
+
+        mac = await autoRetrieveMacAddress(device);
+    }
+
+    if (!mac && customMacAddressProvider) {
+        console.log('[GAN-BLE] MAC_MANUAL_FALLBACK_REQUESTED');
+
+        mac = await customMacAddressProvider(device, true);
+
+        console.log('[GAN-BLE] MAC_MANUAL_FALLBACK_RESULT', {
+            success: !!mac
+        });
+    }
+
+    if (!mac) {
+        console.error('[GAN-BLE] MAC_RETRIEVAL_FAILED');
+
+        throw new Error(
+            'Unable to determine cube MAC address, connection is not possible!'
+        );
+    }
+
+    console.log('[GAN-BLE] MAC_RETRIEVAL_SUCCESS', {
+        source: 'retrieval-completed',
+        validFormat: /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac)
+    });
+
+} catch (error) {
+    console.error('[GAN-BLE] MAC_RETRIEVAL_ERROR', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error)
+    });
+
+    throw error;
+}
 
     if (!mac)
         throw new Error('Unable to determine cube MAC address, connection is not possible!');
@@ -107,6 +222,11 @@ async function connectGanCube(customMacAddressProvider?: MacAddressProvider): Pr
     // Connect to GATT and get device primary services
 console.log('[GAN-BLE] GATT_CONNECT_START');
 
+console.log('[GAN-BLE] GATT_CONNECT_START', {
+    macAvailable: !!device.mac,
+    deviceName: device.name,
+    gattAvailable: !!device.gatt
+});
 var gatt = await device.gatt!.connect();
 
 console.log('[GAN-BLE] GATT_CONNECTED', {
